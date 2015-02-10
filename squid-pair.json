@@ -1,0 +1,244 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Creates a squid server and a client machine that talks to the Internet only through that server.",
+  "Parameters" : {
+
+    "KeyName" : {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type" : "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern" : "[-_ a-zA-Z0-9]*",
+      "ConstraintDescription" : "can contain only alphanumeric characters, spaces, dashes and underscores."
+    },
+    "SSHLocation" : {
+      "Description" : " The IP address range that can be used to SSH to the EC2 instances",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "0.0.0.0/0",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "ServerInstanceType": {
+      "Description": "EC2 instance type for the Squid server",
+      "Type": "String",
+      "Default": "t2.micro"
+    },
+    "ClientInstanceType": {
+      "Description": "EC2 instance type for the Squid client",
+      "Type": "String",
+      "Default": "t2.micro"
+    }
+  },
+  "Resources": {
+    "squid-server": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "DisableApiTermination": "FALSE",
+        "ImageId": "ami-a8d369c0",
+        "InstanceType": { "Ref": "ServerInstanceType" },
+        "KeyName": { "Ref" : "KeyName" },
+        "Monitoring": "false",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "squid-server"
+          }
+        ],
+        "NetworkInterfaces": [
+          {
+            "DeleteOnTermination": "true",
+            "DeviceIndex": 0,
+            "SubnetId": "subnet-87262ef3",
+            "PrivateIpAddresses": [
+              {
+                "PrivateIpAddress": "172.31.23.237",
+                "Primary": "true"
+              }
+            ],
+            "GroupSet": [
+              "sg-31eb3955",
+              {
+                "Ref": "sgbastionhost"
+              },
+              {
+                "Ref": "sgsquidserver"
+              },
+              "sg-977bdef2"
+            ],
+            "AssociatePublicIpAddress": "true"
+          }
+        ]
+      }
+    },
+    "squid-client": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "DisableApiTermination": "FALSE",
+        "ImageId": "ami-a8d369c0",
+        "InstanceType": { "Ref": "ClientInstanceType" },
+        "KeyName": { "Ref" : "KeyName" },
+        "Monitoring": "false",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "squid-client",
+          }
+        ],
+        "NetworkInterfaces": [
+          {
+            "DeleteOnTermination": "true",
+            "Description": "Primary network interface",
+            "DeviceIndex": 0,
+            "SubnetId": "subnet-87262ef3",
+            "PrivateIpAddresses": [
+              {
+                "PrivateIpAddress": "172.31.28.112",
+                "Primary": "true"
+              }
+            ],
+            "GroupSet": [
+              "sg-31eb3955",
+              {
+                "Ref": "sgsquidclient"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "sgsquidclient": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Squid clients",
+        "VpcId": "vpc-2827d74d"
+      }
+    },
+    "sgbastionhost": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "External bastion",
+        "VpcId": "vpc-2827d74d",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": { "Ref" : "SSHLocation"}
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "sgsquidserver": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Squid servers",
+        "VpcId": "vpc-2827d74d",
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "ingress1": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgsquidclient"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "22",
+        "ToPort": "22",
+        "SourceSecurityGroupId": {
+          "Ref": "sgbastionhost"
+        },
+        "SourceSecurityGroupOwnerId": "218542894232"
+      }
+    },
+    "ingress2": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgbastionhost"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "22",
+        "ToPort": "22",
+        "CidrIp": "0.0.0.0/0"
+      }
+    },
+    "ingress3": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgsquidserver"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "3128",
+        "ToPort": "3128",
+        "SourceSecurityGroupId": {
+          "Ref": "sgsquidclient"
+        },
+        "SourceSecurityGroupOwnerId": "218542894232"
+      }
+    },
+    "egress1": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgsquidclient"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "22",
+        "ToPort": "22",
+        "DestinationSecurityGroupId": {
+          "Ref": "sgbastionhost"
+        }
+      }
+    },
+    "egress2": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgsquidclient"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "3128",
+        "ToPort": "3128",
+        "DestinationSecurityGroupId": {
+          "Ref": "sgsquidserver"
+        }
+      }
+    },
+    "egress3": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgbastionhost"
+        },
+        "IpProtocol": "-1",
+        "CidrIP": "0.0.0.0/0"
+      }
+    },
+    "egress4": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "sgsquidserver"
+        },
+        "IpProtocol": "-1",
+        "CidrIP": "0.0.0.0/0"
+      }
+    }
+  },
+  "Description": "Squid setup"
+}
